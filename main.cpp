@@ -12,6 +12,14 @@ bool IsAnyOf(char c, const std::vector<char>& chars)
     return false;
 }
 
+bool BeginsWith(const std::string& string, const std::string& substring)
+{
+    if(string.substr(0, substring.size()) == substring)
+        return true;
+    else 
+        return false;
+}
+
 struct Token
 {
     enum TYPE
