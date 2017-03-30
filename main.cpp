@@ -30,6 +30,7 @@ struct Token
         SEMICOLON,
         PREPROCESSOR,
         FLOAT_LITERAL,
+        INT_LITERAL,
         DONTCARE,
         UNKNOWN
     };
@@ -38,6 +39,7 @@ struct Token
     
     void Print()
     {
+        
         std::cout << data;
     }
     
@@ -280,12 +282,8 @@ bool TokExponentPart(std::string& source, int& offset)
         {
             return true;
         }
-        else
-        {
-            offset = tmp_offset;
-        }
     }
-    
+    offset = tmp_offset;
     return false;
 }
 
@@ -301,13 +299,14 @@ bool TokFractionalConstant(std::string& source, int& offset)
         {
             return true;
         }
-        else
-            offset = tmp_offset;
     }
     else if(TokDigitSequence(source, offset))
     {
         if(offset >= source.size())
-            return 0;
+        {
+            offset = tmp_offset;
+            return false;
+        }
         if(source[offset] == '.')
         {
             offset++;
@@ -315,7 +314,7 @@ bool TokFractionalConstant(std::string& source, int& offset)
             return true;
         }
     }
-    
+    offset = tmp_offset;
     return false;
 }
 
@@ -323,7 +322,7 @@ bool TokFloatingConstant(std::string& source, int& offset)
 {
     if(offset >= source.size())
         return false;
-    
+    int tmp_offset = offset;
     if(TokFractionalConstant(source, offset))
     {
         TokExponentPart(source, offset);
@@ -337,8 +336,9 @@ bool TokFloatingConstant(std::string& source, int& offset)
             TokFloatingSuffix(source, offset);
             return true;
         }
+            
     }
-    
+    offset = tmp_offset;
     return false;
 }
 
@@ -350,6 +350,210 @@ static Token TokenFloatLiteral(std::string& source)
     {
         token.data = source.substr(0, offset);
         token.type = Token::FLOAT_LITERAL;
+        source.erase(source.begin(), source.begin() + offset);
+    }
+    
+    return token;
+}
+
+bool TokHexDigit(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(IsAnyOf(source[offset], { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+                                 'a', 'b', 'c', 'd', 'e', 'f',
+                                 'A', 'B', 'C', 'D', 'E', 'F'
+                               }
+              )
+      )
+    {
+        offset++;
+        return true;
+    }
+    
+    return false;
+}
+
+bool TokOctDigit(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(IsAnyOf(source[offset], { '0', '1', '2', '3', '4', '5', '6', '7' }))
+    {
+        offset++;
+        return true;
+    }
+    
+    return false;
+}
+
+bool TokNonzeroDigit(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(IsAnyOf(source[offset], { '1', '2', '3', '4', '5', '6', '7', '8', '9' }))
+    {
+        offset++;
+        return true;
+    }
+    
+    return false;
+}
+
+bool TokDigit(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(source[offset] == '0')
+    {
+        offset++;
+        return true;
+    }
+    else
+        return TokNonzeroDigit(source, offset);
+}
+
+bool TokHexDigits(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(IsAnyOf(source[offset], { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+                                 'a', 'b', 'c', 'd', 'e', 'f',
+                                 'A', 'B', 'C', 'D', 'E', 'F' }))
+    {
+        offset++;
+        return TokHexDigits(source, offset);
+    }
+    
+    return false;
+}
+
+bool TokOctDigits(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(IsAnyOf(source[offset], { '0', '1', '2', '3', '4', '5', '6', '7' }))
+    {
+        offset++;
+        return TokOctDigits(source, offset);
+    }
+    
+    return false;
+}
+
+bool TokDecDigits(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(IsAnyOf(source[offset], { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' }))
+    {
+        offset++;
+        return TokDecDigits(source, offset);
+    }
+    
+    return false;
+}
+
+bool TokHexConstant(std::string& source, int& offset)
+{
+    if(offset+1 >= source.size())
+        return false;
+    
+    if(BeginsWith(source.substr(offset), "0x") ||
+        BeginsWith(source.substr(offset), "0X"))
+    {
+        offset+=2;
+        if(TokHexDigits(source, offset))
+            return true;
+    }
+    
+    return false;
+}
+
+bool TokOctConstant(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(source[offset] == '0')
+    {
+        offset++;
+        TokOctDigits(source, offset);
+        return true;
+    }
+    
+    return false;
+}
+
+bool TokDecConstant(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(TokNonzeroDigit(source, offset))
+    {
+        TokDecDigits(source, offset);
+        return true;
+    }
+    
+    return false;
+}
+
+bool TokIntegerSuffix(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(source[offset] == 'U' ||
+        source[offset] == 'u')
+    {
+        offset++;
+        return true;
+    }
+    
+    return false;
+}
+
+bool TokIntegerConstant(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(TokDecConstant(source, offset))
+    {
+        TokIntegerSuffix(source, offset);
+        return true;
+    }
+    else if(TokHexConstant(source, offset))
+    {
+        TokIntegerSuffix(source, offset);
+        return true;
+    }
+    else if(TokOctConstant(source, offset))
+    {
+        TokIntegerSuffix(source, offset);
+        return true;
+    }
+    
+    return false;
+}
+
+static Token TokenIntLiteral(std::string& source)
+{
+    Token token;
+    
+    int offset = 0;
+    if(TokIntegerConstant(source, offset))
+    {
+        token.data = source.substr(0, offset);
+        token.type = Token::INT_LITERAL;
         source.erase(source.begin(), source.begin() + offset);
     }
     
@@ -375,6 +579,11 @@ public:
                 tokens.push_back(token);
                 continue;
             }
+            else if((token = TokenIntLiteral(src)).type != Token::UNKNOWN)
+            {
+                tokens.push_back(token);
+                continue;
+            }
             else if((token = TokenOperator(src)).type != Token::UNKNOWN)
             {
                 tokens.push_back(token);
@@ -395,6 +604,8 @@ public:
                 tokens.push_back(token);
                 continue;
             }
+            //token.data.push_back(src.front());
+            //tokens.push_back(token);
             src.erase(src.begin());
         }
     }
@@ -417,6 +628,7 @@ int main()
     tokenizer.Tokenize(
         R"(
         0.3, .4lf, 3.14;
+        0xfff, 0xffffu, -1u, 30000, 0XA01, 023;
         #vertex
         #define SOME_STUPID_MACRO 56.0
             in vec3 Position;
