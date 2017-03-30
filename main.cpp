@@ -31,16 +31,19 @@ struct Token
         PREPROCESSOR,
         FLOAT_LITERAL,
         INT_LITERAL,
+        BRACE,
+        COMMENT,
         DONTCARE,
         UNKNOWN
     };
     Token()
     : type(UNKNOWN) {}
     
-    void Print()
+    void Print() const
     {
-        
-        std::cout << data;
+        if(type == WHITESPACE)
+            return;
+        std::cout << data << std::endl;
     }
     
     std::string data;
@@ -470,7 +473,9 @@ bool TokHexConstant(std::string& source, int& offset)
         BeginsWith(source.substr(offset), "0X"))
     {
         offset+=2;
-        if(TokHexDigits(source, offset))
+        int tmp_offset = offset;
+        TokHexDigits(source, offset);
+        if(tmp_offset != offset)
             return true;
     }
     
@@ -560,93 +565,167 @@ static Token TokenIntLiteral(std::string& source)
     return token;
 }
 
-class GLSLTokenizer
+static Token TokenBrace(std::string& source)
 {
-public:    
-    void Tokenize(const std::string& source)
+    Token token;
+    
+    if(source[0] == '{' ||
+        source[0] == '}')
     {
-        std::string src = source;
-        while(!src.empty())
-        {
-            Token token;
-            if((token = TokenIdentifier(src)).type != Token::UNKNOWN)
-            {
-                tokens.push_back(token);
-                continue;
-            }
-            else if((token = TokenFloatLiteral(src)).type != Token::UNKNOWN)
-            {
-                tokens.push_back(token);
-                continue;
-            }
-            else if((token = TokenIntLiteral(src)).type != Token::UNKNOWN)
-            {
-                tokens.push_back(token);
-                continue;
-            }
-            else if((token = TokenOperator(src)).type != Token::UNKNOWN)
-            {
-                tokens.push_back(token);
-                continue;
-            }
-            else if((token = TokenSemicolon(src)).type != Token::UNKNOWN)
-            {
-                tokens.push_back(token);
-                continue;
-            }
-            else if((token = TokenPreprocessor(src)).type != Token::UNKNOWN)
-            {
-                tokens.push_back(token);
-                continue;
-            }
-            else if((token = TokenWhitespace(src)).type != Token::UNKNOWN)
-            {
-                tokens.push_back(token);
-                continue;
-            }
-            //token.data.push_back(src.front());
-            //tokens.push_back(token);
-            src.erase(src.begin());
-        }
+        token.data.push_back(source[0]);
+        token.type = Token::BRACE;
+        source.erase(source.begin());
+        return token;
     }
     
-    void Print()
+    return token;
+}
+
+static Token TokenComment(std::string& source)
+{
+    Token token;
+    
+    if(BeginsWith(source, "//"))
     {
-        for(unsigned i = 0; i < tokens.size(); ++i)
+        while(!source.empty() &&
+            source.front() != '\n')
         {
-            tokens[i].Print();
+            token.data.push_back(source.front());
+            source.erase(source.begin());
         }
+        
+        token.type = Token::COMMENT;
+        return token;
     }
-private:
+    else if(BeginsWith(source, "/*"))
+    {
+        while(!source.empty())
+        {
+            if(BeginsWith(source, "*/"))
+            {
+                token.data += source.substr(0, 2);
+                source.erase(source.begin(), source.begin() + 2);
+                break;
+            }
+            else
+            {                
+                token.data.push_back(source.front());
+                source.erase(source.begin());
+            }
+        }
+        token.type = Token::COMMENT;
+        return token;
+    }
+    
+    return token;
+}
+  
+std::vector<Token> Tokenize(const std::string& source)
+{
     std::vector<Token> tokens;
-};
+    
+    std::string src = source;
+    while(!src.empty())
+    {
+        Token token;
+        if((token = TokenIdentifier(src)).type != Token::UNKNOWN)
+        {
+            tokens.push_back(token);
+            continue;
+        }
+        else if((token = TokenFloatLiteral(src)).type != Token::UNKNOWN)
+        {
+            tokens.push_back(token);
+            continue;
+        }
+        else if((token = TokenIntLiteral(src)).type != Token::UNKNOWN)
+        {
+            tokens.push_back(token);
+            continue;
+        }
+        else if((token = TokenComment(src)).type != Token::UNKNOWN)
+        {
+            tokens.push_back(token);
+            continue;
+        }
+        else if((token = TokenOperator(src)).type != Token::UNKNOWN)
+        {
+            tokens.push_back(token);
+            continue;
+        }
+        else if((token = TokenSemicolon(src)).type != Token::UNKNOWN)
+        {
+            tokens.push_back(token);
+            continue;
+        }
+        else if((token = TokenPreprocessor(src)).type != Token::UNKNOWN)
+        {
+            tokens.push_back(token);
+            continue;
+        }
+        else if((token = TokenWhitespace(src)).type != Token::UNKNOWN)
+        {
+            tokens.push_back(token);
+            continue;
+        }
+        else if((token = TokenBrace(src)).type != Token::UNKNOWN)
+        {
+            tokens.push_back(token);
+            continue;
+        }
+        else
+        {
+            
+        }
+        //token.data.push_back(src.front());
+        //tokens.push_back(token);
+        src.erase(src.begin());
+    }
+    
+    return tokens;
+}
+    
+void Print(const std::vector<Token>& tokens)
+{
+    for(unsigned i = 0; i < tokens.size(); ++i)
+    {
+        tokens[i].Print();
+    }
+}
 
 int main()
 {
-    GLSLTokenizer tokenizer;    
+    std::vector<Token> tokens =
+        Tokenize(
+            R"(
+            0.3, .4lf, 3.14;
+            0xfff, 0xffffu, -1u, 30000, 0XA01, 023;
+            #vertex
+            #define SOME_STUPID_MACRO 56.0
+                in vec3 Position;
+                in mat4 MatrixModel;
+                in mat4 MatrixView;
+                in mat4 MatrixProjection;
+                out vec3 PositionWorld;
+                PositionWorld = MatrixProjection * MatrixView * MatrixModel * Position;
+            #vertex
+                in vec3 Normal;
+                in mat4 MatrixModel;
+                out vec3 NormalModel = (MatrixModel * vec4(Normal, 0.0)).xyz;
+            #fragment
+                // TODO: Some things
+                /* Multi
+                    line
+                    comment */
+                out vec4 fragColor;
+                int main()
+                {
+                    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+                }
+            )"
+        );
     
-    tokenizer.Tokenize(
-        R"(
-        0.3, .4lf, 3.14;
-        0xfff, 0xffffu, -1u, 30000, 0XA01, 023;
-        #vertex
-        #define SOME_STUPID_MACRO 56.0
-            in vec3 Position;
-            in mat4 MatrixModel;
-            in mat4 MatrixView;
-            in mat4 MatrixProjection;
-            out vec3 PositionWorld;
-            PositionWorld = MatrixProjection * MatrixView * MatrixModel * Position;
-        #vertex
-            in vec3 Normal;
-            in mat4 MatrixModel;
-            out vec3 NormalModel = (MatrixModel * vec4(Normal, 0.0)).xyz;
-        #fragment
-            out vec3 lambertOmni16
-        )"
-    );
-    
-    tokenizer.Print();
+    Print(tokens);
     std::getchar();
     
     return 0;
