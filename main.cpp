@@ -29,6 +29,8 @@ struct Token
         WHITESPACE,
         SEMICOLON,
         PREPROCESSOR,
+        FLOAT_LITERAL,
+        DONTCARE,
         UNKNOWN
     };
     Token()
@@ -36,12 +38,54 @@ struct Token
     
     void Print()
     {
-        std::cout << data << std::endl;
+        std::cout << data;
     }
     
     std::string data;
     TYPE type;
 };
+
+static bool EatMatching(std::string& source, const std::string& token)
+{
+    if(BeginsWith(source, token))
+    {
+        source.erase(source.begin(), source.begin() + token.size() - 1);
+        return true;
+    }
+    return false;
+}
+
+static Token TokenOperator(std::string& source)
+{
+    Token token;
+    std::vector<std::string> ops =
+        {
+            "(", ")", "[", "]", ".",
+            "++", "+=", "+",
+            "--", "-=", "-",
+            "~", "!=", "!",
+            "*=", "*", "/=", "/", "%=", "%",
+            "<<=", "<<", "<=", "<", 
+            ">>=", ">>", ">=", ">",
+            "==", "=", 
+            "&&", "&=", "&",
+            "^^", "^=", "^",
+            "||", "|=", "|",
+            "?", ":",
+            ","
+        };
+    for(unsigned i = 0; i < ops.size(); ++i)
+    {
+        if(EatMatching(source, ops[i]))
+        {
+            token.data = ops[i];
+            token.type = Token::OPERATOR;
+            source.erase(source.begin(), source.begin() + ops[i].size());
+            break;
+        }
+    }
+    return token;
+}
 
 static Token TokenIdentifier(std::string& source)
 {
@@ -170,6 +214,148 @@ static Token TokenWhitespace(std::string& source)
     return token;
 }
 
+bool TokFloatingSuffix(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(BeginsWith(source.substr(offset), "lf") ||
+        BeginsWith(source.substr(offset), "LF"))
+    {
+        offset+=2;
+        return true;
+    }
+    else if(source[offset] == 'f' ||
+        source[offset] == 'F')
+    {
+        offset++;
+        return true;
+    }
+    
+    return false;
+}
+
+bool TokDigitSequence(std::string& source, int& offset)
+{
+    int tmp_offset = offset;
+    while(offset < source.size() &&
+            IsAnyOf(source[offset], {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9' })
+        )
+    {
+        offset++;
+    }
+    
+    return tmp_offset != offset;
+}
+
+bool TokSign(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(source[offset] == '+' ||
+        source[offset] == '-')
+    {
+        offset++;
+        return true;
+    }
+    
+    return false;
+}
+
+bool TokExponentPart(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    int tmp_offset = offset;
+    
+    if(source[offset] == 'e' ||
+        source[offset] == 'E')
+    {
+        offset++;
+        TokSign(source, offset);
+        
+        if(TokDigitSequence(source, offset))
+        {
+            return true;
+        }
+        else
+        {
+            offset = tmp_offset;
+        }
+    }
+    
+    return false;
+}
+
+bool TokFractionalConstant(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    int tmp_offset = offset;
+    if(source[offset] == '.')
+    {
+        offset++;
+        if(TokDigitSequence(source, offset))
+        {
+            return true;
+        }
+        else
+            offset = tmp_offset;
+    }
+    else if(TokDigitSequence(source, offset))
+    {
+        if(offset >= source.size())
+            return 0;
+        if(source[offset] == '.')
+        {
+            offset++;
+            TokDigitSequence(source, offset);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+bool TokFloatingConstant(std::string& source, int& offset)
+{
+    if(offset >= source.size())
+        return false;
+    
+    if(TokFractionalConstant(source, offset))
+    {
+        TokExponentPart(source, offset);
+        TokFloatingSuffix(source, offset);
+        return true;
+    }
+    else if(TokDigitSequence(source, offset))
+    {
+        if(TokExponentPart(source, offset))
+        {
+            TokFloatingSuffix(source, offset);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+static Token TokenFloatLiteral(std::string& source)
+{
+    Token token;
+    int offset = 0;
+    if(TokFloatingConstant(source, offset))
+    {
+        token.data = source.substr(0, offset);
+        token.type = Token::FLOAT_LITERAL;
+        source.erase(source.begin(), source.begin() + offset);
+    }
+    
+    return token;
+}
+
 class GLSLTokenizer
 {
 public:    
@@ -180,6 +366,16 @@ public:
         {
             Token token;
             if((token = TokenIdentifier(src)).type != Token::UNKNOWN)
+            {
+                tokens.push_back(token);
+                continue;
+            }
+            else if((token = TokenFloatLiteral(src)).type != Token::UNKNOWN)
+            {
+                tokens.push_back(token);
+                continue;
+            }
+            else if((token = TokenOperator(src)).type != Token::UNKNOWN)
             {
                 tokens.push_back(token);
                 continue;
@@ -220,6 +416,7 @@ int main()
     
     tokenizer.Tokenize(
         R"(
+        0.3, .4lf, 3.14;
         #vertex
         #define SOME_STUPID_MACRO 56.0
             in vec3 Position;
